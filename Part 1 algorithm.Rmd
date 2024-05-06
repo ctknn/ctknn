@@ -1,0 +1,277 @@
+---
+title: "Markov Chain Monte Carlo algorithm"
+author: "Clement KK Tan"
+date: "2024-01-06"
+output:
+  html_document: default
+  word_document: default
+---
+
+## R Markdown
+
+## Description of Markov Chain Monte Carlo Algorithm 
+The purpose of this algorithm is to generate and simulate random numbers generated in the distribution 
+theory for the probability density function given. The answers for Parts A and B are given in this 1 page report. 
+
+
+# Part A
+Part A describes and simulates the random numbers generated from the normal distribution. 
+
+Part A covers the generating of the random walk Metropolis algorithm using N = 10000 and s = 1. It uses the generated samples (x1; : : : xN) to construct a histogram and a kernel density plot in the same figure. Note that these provide estimates of f(x).Overlay a graph of f(x) on this figure to visualize the quality of these estimates.
+
+The rest of the codings and results generated are given in Appendix A steps 1 to 6.
+
+
+# Part B 
+Part B focuses on the convergence diagnostics is the so-called bR value. The convergence diagnostics generate more than one sequence of x0; : : : ; xN, potentially using different initial values x0.
+
+The coding generation involves obtaining the Mj as the sample mean of chain j and Vj as the within sample variance of chain j. After that, use Vj to overall within sample variance W and Mj to obtain the overall sample mean M. Later, use Mj and M to derive the random numbers for the sample variance B. Lastly, use B and W to derive the final parts for the bR values. Calculate the bR for the random walk Metropolis algorithm with N = 2000, s = 0:001 and J = 4. Keeping N and J fixed, provide a plot of the values of bR over a grid of s values in the interval between 0:001 and 1.
+
+The full Part B codings and results are listed in the Appendix Part B steps 1 to 5. 
+
+## Appendix 
+
+# A Step 1: Establish Libraries 
+```{r}
+library(DBI)        # database information 
+library(dplyr)      # Data frame manipulation
+library(RSQLite)    #RSQLite for possible SQL usage 
+library(lubridate)  # Date operations
+library(tidyr)      # Data frame transformation
+library(ggplot2)    # Plot any diagrams
+library(tidyverse)
+library("RColorBrewer")
+
+
+```
+
+
+# A Step 2 Set up an initial value x0 as well as a positive integer N and a positive real number s. Then initialize a vector to store the samples
+```{r}
+x0 = 0
+N = 10000
+s = 1
+
+samples <- numeric(N)
+samples[1] <- x0
+```
+
+
+# A Step 3 Define the distribution function Fx
+```{r}
+Fx <- function(x) {
+  return(0.5 * exp(-abs(x)))
+}
+```
+
+
+# A Step 4 Random Walk Metropolis algorithm to get ratio r. After that, accept or reject the proposed sample created.
+```{r}
+for (i in 2:N) {
+  # Simulate a random number from the normal distribution
+  x_proposed <- samples[i - 1] + rnorm(1, sd = s)
+
+  # Compute the acceptance ratio
+  ratio <- Fx(x_proposed) / Fx(samples[i - 1])
+
+  # Generate a random number from the uniform distribution
+  u <- runif(1)
+
+  # Accept or reject the proposed sample
+  if (u < ratio) {
+    samples[i] <- x_proposed
+  } else {
+    samples[i] <- samples[i - 1]
+  }
+}
+
+```
+
+
+# A Step 5 Create histogram and kernel density plot. Then find true distribution using Fx for comparison.
+```{r}
+# Plot histogram and kernel density plot
+par(mfrow = c(1, 1))
+hist(samples, breaks = 50, main = "Histogram and KDE with True Function Overlay", col = "purple", xlab = "Sample x", probability = TRUE, ylab="Density")
+lines(density(samples), col = "gold", lwd = 5) # Create KDE line 
+
+# Get the true distribution Fx for comparison
+curve(Fx, col = "maroon", add = TRUE, lwd = 3)
+
+legend(1, 0.4, legend=c("RWM Samples", "Fx", "KDE"),col=c("purple", "maroon", "gold"), 
+       lty=1:1, cex=0.8)
+```
+
+
+# A Step 6 Obtain and indicate sample mean and standard deviation of the sample in Fx function
+```{r}
+sample_mean <- mean(samples)
+sample_sd <- sd(samples)
+
+cat("Sample Mean:", sample_mean, "\n")
+cat("Sample Standard Deviation:", sample_sd, "\n")
+```
+
+
+# B Step 1 Declare parameters for N1, s1, J 
+```{r}
+J = 4   # Number of chains
+N1 = 2000  # Length of each chain
+s1 = 0.001  # Standard deviation for random normal values
+```
+
+
+# B Step 2 Generate and calculate the initial chain, sample mean, and within sample variance
+```{r}
+## Generate initial chain
+generate_chain <- function(initial_value, N1, s1) {
+  cumsum(rnorm(N1, mean = s1)) + initial_value
+}
+
+## Get sample mean 
+calculate_sample_mean <- function(chain) {
+  mean(chain)
+}
+
+## Get within sample variance
+calculate_within_sample_variance <- function(chain, sample_mean) {
+  mean((chain - sample_mean)^2)
+}
+```
+
+
+# B Step 3 Initialise array lists 
+```{r}
+## Initialize arrays to store sample means, within sample variances, and between sample variances
+sample_means <- c()
+within_sample_variances <- c()
+between_sample_variances <- c()
+
+```
+
+
+# B Step 4 Define and obtain the different sequences according to the above parameters and chains
+```{r}
+## Generate and analyze multiple chains
+for (j in 1:J) {
+  # Generate chain with a random initial value
+  initial_value <- rnorm(1)
+  chain <- generate_chain(initial_value, N1, s1)
+
+
+# Calculate sample mean Mj and within sample variance Vj
+  Mj <- sample_mean <- calculate_sample_mean(chain)
+  Vj <- within_sample_variance <- calculate_within_sample_variance(chain, sample_mean)
+
+  # Store Mj and Vj for each chain
+  sample_means <- c(sample_means, Mj)
+  within_sample_variances <- c(within_sample_variances, Vj)
+
+  # Print results for each chain
+  cat(sprintf("Chain %d - Initial Value: %.2f, Sample Mean Mj: %.2f, Within Sample Variance Vj: %.2f\n", j, initial_value, Mj, Vj))
+}
+
+# Calculate overall within sample variance (W)
+W <- overall_within_sample_variance <- mean(within_sample_variances)
+
+# Print overall within sample variance
+cat(sprintf("\nOverall Within Sample Variance (W): %.2f\n", overall_within_sample_variance))
+
+# Calculate overall sample mean (M)
+M <- overall_sample_mean <- mean(sample_means)
+
+# Print overall sample mean
+cat(sprintf("\nOverall Sample Mean (M): %.2f\n", overall_sample_mean))
+
+# Calculate between sample variance (B)
+for (j in 1:J) {
+  between_sample_variances <- c(between_sample_variances, (sample_means[j] - overall_sample_mean)^2)
+}
+
+# Average the between sample variances B
+B <- overall_between_sample_variance <- mean(between_sample_variances)
+
+# Print overall between sample variance B
+cat(sprintf("\nOverall Between Sample Variance (B): %.2f\n", overall_between_sample_variance))
+
+# Calculate R value
+R <- sqrt((B + W) / W)
+
+cat(sprintf("Convergence diagnostics R Value: %.2f\n", R))
+```
+
+
+# B Step 5 Keeping N1 and J constant, provide a plot of the values of bR over a grid of s values in the interval between 0.001 and 1.
+```{r}
+# Generate and calculate the initial chain, sample mean, and within sample variance
+generate_chain <- function(initial_value, N2, s2) {
+  cumsum(rnorm(N2, mean = s2)) + initial_value
+}
+
+calculate_sample_mean <- function(chain) {
+  mean(chain)
+}
+
+calculate_within_sample_variance <- function(chain, sample_mean) {
+  mean((chain - sample_mean)^2)
+}
+
+calculate_between_sample_variance <- function(sample_means, overall_sample_mean) {
+  mean((sample_means - overall_sample_mean)^2)
+}
+
+# Use Gelman Rubin Statistics to obtain the plot of the values of bR over a grid of s values in the interval between 0.001 and 1.
+gelman_rubin_statistic <- function(sample_means, overall_sample_mean, within_sample_variances) {
+  B2 <- calculate_between_sample_variance(sample_means, overall_sample_mean)
+  W2 <- mean(within_sample_variances)
+  sqrt((B2 + W2) / W2)
+}
+
+# Parameters J and N2
+J <- 4   # Number of chains
+N2 <- 2000  # Length of each chain
+
+# Grid of s2 values
+s_values <- seq(0.001, 1, length.out = 100)
+
+# Initialize an array to store bR values
+bR_values <- c()
+
+# Iterate s2 over s values
+for (s2 in s_values) {
+  # Initialize arrays to store sample means and within sample variances
+  sample_means <- c()
+  within_sample_variances <- c()
+
+  # Generate and analyze multiple chains
+  for (j in 1:J) {
+    # Generate chain with a random initial value
+    initial_value <- rnorm(1)
+    chain <- generate_chain(initial_value, N2, s2)
+
+    # Calculate sample mean and within sample variance
+    sample_mean <- calculate_sample_mean(chain)
+    within_sample_variance <- calculate_within_sample_variance(chain, sample_mean)
+
+    # Store sample mean and within sample variance for each chain
+    sample_means <- c(sample_means, sample_mean)
+    within_sample_variances <- c(within_sample_variances, within_sample_variance)
+  }
+
+  # Calculate overall sample mean (M)
+  overall_sample_mean <- mean(sample_means)
+
+  # Calculate bR value
+  bR <- gelman_rubin_statistic(sample_means, overall_sample_mean, within_sample_variances)
+
+  # Store and accumulate bR value
+  bR_values <- c(bR_values, bR)
+}
+
+# Plotting the Gelman Rubin Statistics Graph to show the graph of bR values across the different s values 
+plot(s_values, bR_values, type='l', col='cyan', xlab='s values', ylab='bR values', main='Plot of bR over a grid of s values')
+```
+
+
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

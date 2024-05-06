@@ -1,0 +1,458 @@
+---
+title: "Part 2 Coding for Airports"
+author: "Clement KK Tan"
+date: "2024-03-27"
+output: html_document
+---
+
+## R Markdown
+
+
+# Part 1 Declare library variables, set working directory and create database conn 
+The r info for the library packages are shown below. Do set working directory using the function shown below.  
+```{r}
+library(DBI)        # database information 
+library(dplyr)      # Data frame manipulation
+library(RSQLite)    #RSQLite for possible SQL usage 
+library(lubridate)  # Date operations
+library(tidyr)      # Data frame transformation
+library(ggplot2)    # Plot any diagrams
+library(tidyverse)
+library("RColorBrewer")
+library(MASS)
+library(ISLR)
+library(ISLR2)
+library(car)
+library(ggplot2)
+library(tidyverse)
+library(magrittr)
+library(tinytex)
+library(e1071)
+library(mlbench)
+library(tree)
+library(randomForest)
+library(bnlearn)
+library(rpart)
+library(rpart.plot)
+
+# Set the desired working directory
+working_directory <- 'C:/Users/Clement Tan/03 codes pack/Practice Assignment 03'
+```
+
+
+## Part 2 ======== write to the database ========
+The given R codes are to read in the CSV files from the airports,csv, carriers.csv and plane-data.csv files. 
+```{r}
+airports <- read.csv("airports.csv", header = TRUE)
+carriers <- read.csv("carriers.csv", header = TRUE)
+planes <- read.csv("plane-data.csv", header = TRUE)
+```
+
+## Part 3 ======== Establish Data range =========
+The codes are to read in the number of yeas of CSV data files from 1997 to 1998. This is via the variable "Datarange" and it is to connect the CSV files to the conn variable for the SQLite Connection area.
+```{r}
+library(data.table)
+
+conn <- dbConnect(RSQLite::SQLite(), "airline.db")
+
+for(i in c(1997:1998)) {
+ Datarange <- read.csv(paste0(i, ".csv"), header = TRUE)
+  if(i == 1997) {
+   dbWriteTable(conn, "Datarange", Datarange)
+  } else {
+   dbWriteTable(conn, "Datarange", Datarange, append = TRUE)
+  }
+}
+```
+
+## Conversion of CRS timings
+```{r}
+library(dplyr)
+
+#Declare Datarange for CRSArrTime and CRSDepTime
+Datarange$CRSArrTime <- ifelse(Datarange$CRSArrTime / 100 > 23.99, 0, Datarange$CRSArrTime)
+Datarange$CRSDepTime <- ifelse(Datarange$CRSDepTime / 100 > 23.99, 0, Datarange$CRSDepTime)
+
+# Declare dataframe for CRSArr_Hour and CRSDep_Hour 
+Datarange$CRSArr_Hour <- (as.integer(Datarange$CRSArrTime / 100) %% 24)
+Datarange$CRSDep_Hour <- (as.integer(Datarange$CRSDepTime / 100) %% 24)
+```
+
+## Obtain flight timings
+```{r}
+# Load necessary libraries
+library(dplyr)
+
+# Convert CRSArrTime and CRSDepTime to datetime format and calculate Flight_Time_Mins
+Datarange$Flight_Time_Mins <- sapply(1:nrow(Datarange), function(i) {
+  dep_time <- as.POSIXct(sprintf("%04d", Datarange[i, "CRSDepTime"]), format = "%H%M", tz = "UTC")
+  arr_time <- as.POSIXct(sprintf("%04d", Datarange[i, "CRSArrTime"]), format = "%H%M", tz = "UTC")
+  as.numeric(difftime(arr_time, dep_time, units = "mins"))
+})
+```
+
+## Remove data sets with DepDelay>0  and ArrDelay>0.
+```{r}
+# Drop rows where Diverted or Cancelled is equal to 0
+Datarange_filtered <- Datarange%>% filter(DepDelay > 0 & ArrDelay > 0)
+
+
+```
+
+## Obtain the 32 variables
+```{r}
+dim(Datarange_filtered)
+max_value <- max(Datarange_filtered$CRSDepTime, na.rm = TRUE)
+```
+
+## Get sample values of the datetime formats
+```{r}
+# Sample 1000 values from CRSDepTime and CRSArrTime columns
+sample_indices <- sample(1:nrow(Datarange), 1000)
+sampled_CRSDepTime <- Datarange_filtered$CRSDepTime[sample_indices]
+sampled_CRSArrTime <- Datarange_filtered$CRSArrTime[sample_indices]
+
+# Loop over the sampled values
+for (i in 1:length(sampled_CRSDepTime)) {
+  tryCatch({
+    # Convert to datetime format and calculate time difference
+    dep_time <- as.POSIXct(sprintf("%04d", sampled_CRSDepTime[i]), format = "%H%M", tz = "UTC")
+    arr_time <- as.POSIXct(sprintf("%04d", sampled_CRSArrTime[i]), format = "%H%M", tz = "UTC")
+   time_diff_seconds <- difftime(arr_time, dep_time, units = "secs")
+    print(time_diff_seconds)
+  }, error = function(e) {
+    # Print error message and values causing the error
+    print(paste("Error:", e))
+    print(paste("CRSDepTime:", sampled_CRSDepTime[i]))
+    print(paste("CRSArrTime:", sampled_CRSArrTime[i]))
+  })
+}
+```
+
+# Filter and display the CRSArrTime and CRSArr_Hour
+```{r}
+subset(Datarange_filtered, CRSArr_Hour == 24, select = c("CRSDepTime", "CRSDep_Hour"))
+Datarange[Datarange_filtered$CRSArr_Hour == 24, c("CRSDepTime", "CRSDep_Hour")]
+```
+
+## Obtain the different time delays 
+```{r}
+# Filter dataframe for DepDelay <= 15 and get the number of rows
+min_delay <- nrow(subset(Datarange_filtered, DepDelay <= 15))
+print(min_delay)
+
+# Filter dataframe for DepDelay >= 180 and get the number of rows
+big_delay <- nrow(subset(Datarange_filtered, DepDelay >= 180))
+print(big_delay)
+
+# Filter dataframe for DepDelay between 15 and 180 (exclusive) and get the number of rows
+normal_delay <- nrow(subset(Datarange_filtered, DepDelay > 15 & DepDelay < 180))
+print(normal_delay)
+
+# Calculate total delay by summing up delays in each category
+total_delay <- min_delay + big_delay + normal_delay
+print(total_delay)
+```
+
+## Draw pie chart for the different delays 
+```{r}
+# Define the delay values and proportions
+delay <- c(979329, 16872, 758472)
+prop_delay <- c(0.794524010926829, 0.0058387863622846045, 0.19963720271088642)
+labels <- c('min_delay', 'big_delay', 'normal_delay')
+
+# Create a pie chart
+pie(delay, labels = labels, main = "Different Departure Delay Types", col = rainbow(length(delay)))
+
+# Add legend
+legend("topright", labels, cex = 0.8, fill = rainbow(length(delay)))
+```
+
+## Calculate delay types
+```{r}
+library(dplyr)
+
+# Define functions to calculate delay categories
+calculate_big_delay <- function(delay) {
+  if (delay >= 180) {
+    return(1)  # or any value you want to assign for big_delay
+  } else {
+    return(0)  # or any value you want to assign for cases where delay < 180
+  }
+}
+
+calculate_min_delay <- function(delay) {
+  if (delay <= 15) {
+    return(1)  # or any value you want to assign for min_delay
+  } else {
+    return(0)  # or any value you want to assign for cases where delay > 15
+  }
+}
+
+calculate_normal_delay <- function(delay) {
+  if (15 < delay & delay < 180) {
+    return(1)  # or any value you want to assign for normal_delay
+  } else {
+    return(0)  # or any value you want to assign for cases outside the condition
+  }
+}
+
+# Applying the functions to create new columns
+Datarange_filtered<- mutate(Datarange_filtered,
+                    big_delay = sapply(Datarange_filtered$ArrDelay, calculate_big_delay),
+                    min_delay = sapply(Datarange_filtered$ArrDelay, calculate_min_delay),
+                    normal_delay = sapply(Datarange_filtered$ArrDelay, calculate_normal_delay))
+
+# Display the updated DataFrame
+print(Datarange_filtered$big_delay)
+```
+
+# PART A 
+When is the best time of day to fly to minimize delays?
+```{r}
+# Grouping by CRS Departure Hour and summing the delay types
+grouped_data_departure <- Datarange_filtered %>%
+ group_by(CRSDep_Hour) %>%
+  summarise(big_delay = sum(big_delay),
+            min_delay = sum(min_delay),
+            normal_delay = sum(normal_delay))
+
+# Reshape the data for ggplot
+grouped_data_departure <- gather(grouped_data_departure, key = "delay_type", value = "count", -CRSDep_Hour)
+
+# Create the stacked bar plot
+ggplot(grouped_data_departure, aes(x = factor(CRSDep_Hour), y = count, fill = delay_type)) +
+ geom_bar(stat = "identity") +
+  labs(x = "CRS Departure Hour", y = "Number of Flights", title = "Stacked Bar Plot of Departure Delays by CRS Departure Hour from 1997-1998") +
+  scale_x_discrete(labels = function(x) as.character(x)) +
+  scale_fill_manual(values = c("big_delay" = "blue", "min_delay" = "orange", "normal_delay" = "green")) +
+  theme_minimal()
+## This code will create a stacked bar plot showing the number of flights with different delay types (big, min, and normal delays) by CRS departure hour. Adjust the colors and themes as needed.
+```
+
+# Part A
+Best day of week to fly 
+```{r}
+library(ggplot2)
+    
+Datarange_filtered %>%
+ mutate(DayOfWeek = factor(x=DayOfWeek, levels=c(1,2,3,4,5,6,7), labels=c("1","2","3","4","5","6","7"))) %>%
+  ggplot(aes(x=DayOfWeek, y=min_delay, fill=DayOfWeek)) + 
+    geom_boxplot(na.rm=TRUE) + 
+    ggtitle("Best Day of week to fly") + 
+    xlab("Day of the Week (1 = Monday, 7 = Sunday)") + 
+    theme(legend.position="none")  
+```
+
+# Part B
+Do older planes suffer on a year to year basis?
+
+## Create plane info data using the year csv files 
+```{r}
+Datarange_filtered <- read.csv(file.path(working_directory, '1997.csv'))
+plane_data <- read.csv(file.path(working_directory, 'plane-data.csv'))
+plane_data <- rename(plane_data, TailNum = tailnum)
+head(plane_data)
+
+```
+
+## Merge data sets
+```{r}
+flight_data <- merge(Datarange_filtered, plane_data, by = "TailNum")
+head(flight_data)
+```
+
+## Assuming you have combined the 'Year' and 'year' columns into flight_data
+```{r}
+# Convert the 'year' column to numeric
+flight_data <- flight_data %>%
+  mutate(year = as.numeric(year))
+
+# Drop rows where 'year' is NA
+flight_data <- flight_data %>%
+  filter(!is.na(year))
+
+# Perform the subtraction
+flight_data <- flight_data %>%
+  mutate(Age_Flight = Year - year)
+
+# Check the result
+print(flight_data)
+```
+
+## Create Histogram for the age of planes range and the arrrival delays range 
+```{r}
+# Create the joint plot
+h <- ggplot(flight_data, aes(x = Age_Flight, y = DepDelay)) +
+  geom_point() +
+  geom_smooth(method = "lm", color = "purple") +
+  labs(x = "Age_Flight", y = "DepDelay") +
+  theme_minimal()
+
+# Print the plot
+print(h)
+```
+
+## Create calculation functions for the different delays 
+```{r}
+# Function to calculate 'big_delay'
+calculate_big_delay <- function(x) {
+  ifelse(x$DepDelay >= 180, 1, 0)
+}
+
+# Function to calculate 'min_delay'
+calculate_min_delay <- function(x) {
+  ifelse(x$DepDelay <= 15, 1, 0)
+}
+
+# Function to calculate 'normal_delay'
+calculate_normal_delay <- function(x) {
+  ifelse(x$DepDelay > 15 & x$DepDelay < 180, 1, 0)
+}
+
+```
+
+## Create stack bar plots for the flight age categories and respective delays
+```{r}
+# Load necessary libraries
+library(ggplot2)
+library(dplyr)
+
+# Assuming flight_data is your data frame containing flight information
+
+# Define bins for different ranges of flight times (adjust as needed)
+bins <- c(0, 6, 12, 18, 24, 30, 36, Inf)
+
+# Create a new column 'Age_Flight_Category' based on the bins
+flight_data$Age_Flight_Category <- cut(flight_data$Age_Flight, breaks = bins, labels = FALSE, right = FALSE)
+
+# Grouping by Flight Time Category and summing the delay types
+grouped_data_age_flight <- flight_data %>%
+ group_by(Age_Flight_Category) %>%
+   summarise(
+    big_delay = sum(big_delay),
+    min_delay = sum(min_delay),
+    normal_delay = sum(normal_delay)
+  )
+
+# Stacked bar plot using ggplot2
+ggplot(grouped_data_age_flight, aes(x = Age_Flight_Category)) +
+  geom_bar(aes(y = big_delay), stat = "identity", fill = "red", alpha = 0.7) +
+  geom_bar(aes(y = min_delay), stat = "identity", fill = "blue", alpha = 0.7) +
+  geom_bar(aes(y = normal_delay), stat = "identity", fill = "green", alpha = 0.7) +
+  
+  # Adding labels and title
+  labs(x = "Age of Flight Category",
+       y = "Number of Flights",
+       title = "Stacked Bar Plot of Departure Delays by Age of Flight Category in 1997") +
+  
+  # Set x-ticks to include all flight time categories
+  scale_x_continuous(breaks = 1:length(unique(grouped_data_age_flight$Age_Flight_Category)),
+                     labels = c(paste0(bins[1:(length(bins)-1)], "-", bins[2:(length(bins)-1)]), 
+                                paste0("More than ", bins[length(bins)-1]))) +
+  
+  # Adding legend
+  scale_fill_manual(values = c("red", "blue", "green"),
+                    labels = c("> 180 mins delay", "< 15 mins delay", "normal delay")) +
+  
+  # Rotate x-axis labels if needed
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) 
+```
+
+
+# Part C 
+For each year, fit a logistic regression model for the probability of diverted US fights using as many features as possible from attributes of the departure date, the scheduled departure and arrival times, the coordinates and distance between departure and planned arrival airports, and the carrier. Visualize the coefficients across the years.
+
+
+## Delcare libraries for logistic regression machine learning 
+```{r}
+# Declare libraries for logistic regression machine learning
+library(tidyverse)
+library(caret)
+library(Metrics)
+library(recipes)
+library(caret)
+library(mlbench)
+library(datasets)
+library(dplyr)
+library(ggplot2)
+library(lubridate)
+library(pROC)
+library(biglm)
+library(readr)
+library(broom)
+```
+
+# Set seed for reproducibility
+```{r}
+set.seed(123)
+```
+
+# Assuming 'Datarange' is your dataframe containing flight data
+```{r}
+# Pre-process the data to include only necessary columns
+Datarange <- Datarange %>%
+  mutate(
+    Year = as.numeric(Year),
+    Month = as.factor(Month),
+    DayOfWeek = as.factor(DayOfWeek),
+    UniqueCarrier = as.factor(UniqueCarrier),
+    Distance = as.numeric(Distance),
+    CRSDepTime = as.numeric(CRSDepTime),  # Already in minutes, ensure numeric
+    CRSArrTime = as.numeric(CRSArrTime),  # Convert CRSArrTime to numeric if not already
+    Diverted = as.factor(Diverted)  # Ensure 'Diverted' is treated as a factor
+  ) %>%
+  filter(!is.na(Diverted) & Diverted %in% c("0", "1") & !is.na(CRSDepTime) & !is.na(CRSArrTime))
+```
+
+# Sample a smaller subset for modeling
+```{r}
+Sampled_data <- sample_n(Datarange_filtered, size = 10000)
+```
+
+# Fit the logistic regression model using the correct variables
+```{r}
+Logistic_Model <- glm(Diverted ~ Year + Month + DayOfWeek + UniqueCarrier + Distance +
+                        CRSDepTime + CRSArrTime,
+                      data = Sampled_data,
+                      family = binomial(link = "logit"))
+
+# Print the model summary to inspect the coefficients used
+summary(Logistic_Model)
+```
+
+# Visualize coefficients from the model
+```{r}
+summary(Logistic_Model)
+
+ggplot(Logistic_Model$coefficients, aes(x = Logistic_Model$Estimate, y = reorder(term, Logistic_Model$Estimate))) +
+  geom_bar(stat = "identity", fill = "blue", alpha = 0.7, data = Datarange_filtered) +  # Use geom_bar to create bar chart
+  labs(x = "Coefficient Estimate", y = "Predictor", title = "Logistic Regression Coefficients") +
+  theme_minimal()
+```
+
+```{r}
+# Visualize coefficients from the model
+ggplot(coefficients, aes(x = estimate, y = reorder(term, estimate))) +
+  geom_bar(stat = "identity", fill = "skyblue", alpha = 0.7) +  # Use geom_bar for bar chart
+  labs(x = "Coefficient Estimate", y = "Predictor", title = "Logistic Regression Coefficients") +
+  theme_minimal()
+```
+
+
+# Design the ROC curve
+```{r}
+# Calculate predicted probabilities using the Logistic Regression model
+predicted_probs <- predict(Logistic_Model, newdata = Sampled_data, type = "response")
+
+# Calculate and plot the ROC curve to evaluate Logistic Regression model performance
+roc_curve <- roc(response = as.numeric(Sampled_data$Diverted) - 1, predictor = predicted_probs)
+roc_data <- data.frame(specificity = 1 - roc_curve$specificities, sensitivity = roc_curve$sensitivities)
+ggplot(roc_data, aes(x = specificity, y = sensitivity)) +
+  geom_line() +
+  geom_abline(linetype = "dashed") +
+  labs(title = "ROC Curve", x = "1 - Specificity", y = "Sensitivity") +
+  theme_minimal()
+```
+
+
